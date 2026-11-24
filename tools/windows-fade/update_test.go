@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -196,7 +197,10 @@ func testUpdateZip(t *testing.T, names []string, symlink bool) []byte {
 	return raw.Bytes()
 }
 
-func TestUpdateMacInstallAndUnsafeZip(t *testing.T) {
+func TestUpdateMacInstall(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("macOS installation requires Unix executable permissions; exercised by macOS CI")
+	}
 	root := updateTestHome(t)
 	payload := testUpdateZip(t, []string{updateAppName + "/Contents/Info.plist", updateAppName + "/Contents/MacOS/SCurve"}, false)
 	updateFixture(t, "darwin", payload, "")
@@ -214,6 +218,10 @@ func TestUpdateMacInstallAndUnsafeZip(t *testing.T) {
 	if cached, err := cachedUpdateTarget(); err != nil || cached != target {
 		t.Fatalf("cache: %q %v", cached, err)
 	}
+}
+
+func TestUpdateRejectsUnsafeZip(t *testing.T) {
+	var err error
 	for _, name := range []string{"../outside", "/absolute", updateAppName + "/../outside", updateAppName + "\\Contents\\file", "other.app/Contents/file", updateAppName + "//file"} {
 		archive := filepath.Join(t.TempDir(), "update.zip")
 		if err = os.WriteFile(archive, testUpdateZip(t, []string{name}, false), 0600); err != nil {
