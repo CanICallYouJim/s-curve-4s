@@ -1,0 +1,158 @@
+name: Build and release S-curve
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Read application version
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, re
+          from pathlib import Path
+          ref = os.environ['GITHUB_REF']
+          source = Path('tools/windows-fade/update.go').read_text()
+          version = ref.removeprefix('refs/tags/v') if ref.startswith('refs/tags/v') else re.search(r'appVersion\s*=\s*"([0-9.]+)"', source).group(1)
+          if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version):
+              raise SystemExit('Version must be X.Y.Z')
+          with open(os.environ['GITHUB_ENV'], 'a') as target:
+              target.write('VERSION=' + version + '\n')
+          PY
+      - name: Download verified FFmpeg 9.1
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build | Out-Null
+          $archive = 'build/ffmpeg-9.1-essentials_build.zip'
+          Invoke-WebRequest 'https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.1-essentials_build.zip' -OutFile $archive
+          $expected = 'b9bbbb3acece000cbeec994f856649354e52c773807841e78908374b24d658fd'
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'FFmpeg checksum mismatch' }
+          [IO.File]::WriteAllText((Join-Path $PWD ($archive + '.sha256')), $expected)
+      - name: Build Windows EXE
+        shell: pwsh
+        run: python tools/windows-fade/build.py build/ffmpeg-9.1-essentials_build.zip dist/S-curve-4s-Windows.exe --version $env:VERSION
+      - name: Test startup, real dialog, history and updater
+        shell: pwsh
+        run: |
+          go -C tools/windows-fade test -count=1 -timeout 3m -run 'TestDialogDoesNotHideItsWindow|TestDialogStartupLifecycle|TestWindowsDialogSmoke|TestFolderHistory|TestBrandAnimationAsset|TestUpdate' .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/S-curve-4s-Windows.exe
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Read application version
+        run: |
+          python - <<'PY'
+          import os, re
+          from pathlib import Path
+          ref = os.environ['GITHUB_REF']
+          source = Path('tools/windows-fade/update.go').read_text()
+          version = ref.removeprefix('refs/tags/v') if ref.startswith('refs/tags/v') else re.search(r'appVersion\s*=\s*"([0-9.]+)"', source).group(1)
+          if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version):
+              raise SystemExit('Version must be X.Y.Z')
+          with open(os.environ['GITHUB_ENV'], 'a') as target:
+              target.write('VERSION=' + version + '\n')
+          PY
+      - name: Download verified static FFmpeg 9.1 for both architectures
+        run: |
+          python - <<'PY'
+          import hashlib, urllib.request, zipfile
+          from pathlib import Path
+          sources = {
+              'amd64': ('1795212433_9.1', {
+                  'ffmpeg': '35b3d82cccc2c1d644d49d15f5e57eb913a08ef68f798042c90eecec62c51f1e',
+                  'ffprobe': '41ca7b7cba7992e33f1da3f1bf54db8ec103a4d387b1bfac3162062e8b1074ad'}),
+              'arm64': ('1795207104_9.1', {
+                  'ffmpeg': '1f66e9a690a7f1c9e60b012379f8869c11818d1797f45b21dbb2f2564ba61ae1',
+                  'ffprobe': '6ef2df5f575042923a28537ab37adf936f28bf3e7b85de23a1447ed447ec1dbd'})}
+          for arch, (release, binaries) in sources.items():
+              folder = Path('build/tools') / arch
+              folder.mkdir(parents=True, exist_ok=True)
+              for name, checksum in binaries.items():
+                  url = f'https://ffmpeg.martin-riedl.de/download/macos/{arch}/{release}/{name}.zip'
+                  archive = folder / (name + '.zip')
+                  with urllib.request.urlopen(url, timeout=120) as response:
+                      archive.write_bytes(response.read())
+                  if hashlib.sha256(archive.read_bytes()).hexdigest() != checksum:
+                      raise SystemExit('FFmpeg checksum mismatch: ' + str(archive))
+                  (folder / (name + '.zip.sha256')).write_text(checksum)
+                  with zipfile.ZipFile(archive) as source:
+                      binary = folder / name
+                      binary.write_bytes(source.read(name))
+                      binary.chmod(0o755)
+          PY
+      - name: Test backend and updater
+        run: |
+          go -C tools/windows-fade test -count=1 -timeout 3m -run 'TestDialogStartupLifecycle|TestFolderHistory|TestBrandAnimationAsset|TestUpdate' .
+      - name: Build universal Mac application
+        run: python tools/macos-fade/build.py build/tools 'dist/S-кривая 4 с.app' --version "$VERSION"
+      - name: Test native application and signature
+        run: |
+          'dist/S-кривая 4 с.app/Contents/MacOS/SCurve' --self-test
+          codesign --verify --deep --strict 'dist/S-кривая 4 с.app'
+          for binary in 'Contents/MacOS/SCurve' 'Contents/MacOS/fade-engine' 'Contents/Resources/tools/ffmpeg' 'Contents/Resources/tools/ffprobe'; do
+            lipo -verify_arch x86_64 arm64 "dist/S-кривая 4 с.app/$binary"
+          done
+      - name: Package update archive
+        run: python tools/scurve-release/package_macos.py 'dist/S-кривая 4 с.app' dist/S-curve-4s-macOS.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/S-curve-4s-macOS.zip
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+      - name: Make update manifest
+        env:
+          TAG: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: python tools/scurve-release/make_manifest.py "$TAG" --repository "$REPOSITORY" --windows dist/S-curve-4s-Windows.exe --macos dist/S-curve-4s-macOS.zip --output dist/update.json
+      - name: Publish release and updater assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" dist/S-curve-4s-Windows.exe dist/S-curve-4s-macOS.zip dist/update.json --verify-tag --title "S-кривая $TAG" --generate-notes
