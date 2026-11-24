@@ -118,7 +118,7 @@ jobs:
           'dist/S-кривая 4 с.app/Contents/MacOS/SCurve' --self-test
           codesign --verify --deep --strict 'dist/S-кривая 4 с.app'
           for binary in 'Contents/MacOS/SCurve' 'Contents/MacOS/fade-engine' 'Contents/Resources/tools/ffmpeg' 'Contents/Resources/tools/ffprobe'; do
-            lipo -verify_arch x86_64 arm64 "dist/S-кривая 4 с.app/$binary"
+            lipo "dist/S-кривая 4 с.app/$binary" -verify_arch x86_64 arm64
           done
       - name: Package update archive
         run: python tools/scurve-release/package_macos.py 'dist/S-кривая 4 с.app' dist/S-curve-4s-macOS.zip
