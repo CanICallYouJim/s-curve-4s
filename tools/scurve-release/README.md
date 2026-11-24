@@ -4,7 +4,7 @@
 
 `release.yml` следует разместить в `.github/workflows/release.yml` публичного репозитория. Сохраняйте структуру `tools/windows-fade`, `tools/macos-fade`, `tools/scurve-release`.
 
-При push в `main`, pull request и ручном запуске Actions выполняются сборки и проверки. Windows запускается на `windows-latest`, универсальная Mac-сборка — на `macos-15-intel`. На обычном push обновление пользователям не публикуется. Тег `vX.Y.Z` запускает те же проверки и публикует GitHub Release только после успеха обеих платформ.
+При pull request и ручном запуске Actions выполняются сборки и проверки. Windows запускается на `windows-latest`, универсальная Mac-сборка — на `macos-15-intel`. На обычном push обновление пользователям не публикуется. Тег `vX.Y.Z` запускает те же проверки и публикует GitHub Release только после успеха обеих платформ.
 
 ## Выпуск следующей версии
 

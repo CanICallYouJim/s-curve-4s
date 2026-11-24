@@ -496,6 +496,9 @@ var errCancelled = errors.New("выбор отменён")
 func main() {
 	if applicationMode == "fade" {
 		if handled, err := updateCommand(os.Args[1:]); handled {
+			if errors.Is(err, context.Canceled) {
+				os.Exit(2)
+			}
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
