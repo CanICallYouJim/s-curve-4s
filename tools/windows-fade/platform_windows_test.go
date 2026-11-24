@@ -64,3 +64,22 @@ func TestWindowsDialogSmoke(t *testing.T) {
 		t.Fatal("closed dialog left a waiting process")
 	}
 }
+
+func TestSingleGUIInstance(t *testing.T) {
+	first, err := acquireGUIInstance()
+	if err != nil || !first {
+		t.Fatalf("first instance: %v %v", first, err)
+	}
+	release := releaseGUIInstance
+	defer release()
+	second, err := acquireGUIInstance()
+	if err != nil || second {
+		t.Fatalf("duplicate instance accepted: %v %v", second, err)
+	}
+	release()
+	third, err := acquireGUIInstance()
+	if err != nil || !third {
+		t.Fatalf("lock not released: %v %v", third, err)
+	}
+	releaseGUIInstance()
+}

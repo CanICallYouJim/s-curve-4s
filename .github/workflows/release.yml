@@ -29,7 +29,7 @@ jobs:
           import os, re
           from pathlib import Path
           ref = os.environ['GITHUB_REF']
-          source = Path('tools/windows-fade/update.go').read_text()
+          source = Path('tools/windows-fade/update.go').read_text(encoding='utf-8')
           version = ref.removeprefix('refs/tags/v') if ref.startswith('refs/tags/v') else re.search(r'appVersion\s*=\s*"([0-9.]+)"', source).group(1)
           if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version):
               raise SystemExit('Version must be X.Y.Z')
@@ -41,7 +41,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force build | Out-Null
           $archive = 'build/ffmpeg-9.1-essentials_build.zip'
-          Invoke-WebRequest 'https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.1-essentials_build.zip' -OutFile $archive
+          Invoke-WebRequest 'https://github.com/CanICallYouJim/s-curve-4s/releases/download/build-tools-9.1/ffmpeg-windows-9.1.zip' -OutFile $archive
           $expected = 'b9bbbb3acece000cbeec994f856649354e52c773807841e78908374b24d658fd'
           if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'FFmpeg checksum mismatch' }
           [IO.File]::WriteAllText((Join-Path $PWD ($archive + '.sha256')), $expected)
@@ -51,7 +51,7 @@ jobs:
       - name: Test startup, real dialog, history and updater
         shell: pwsh
         run: |
-          go -C tools/windows-fade test -count=1 -timeout 3m -run 'TestDialogDoesNotHideItsWindow|TestDialogStartupLifecycle|TestWindowsDialogSmoke|TestFolderHistory|TestBrandAnimationAsset|TestUpdate' .
+          go -C tools/windows-fade test -count=1 -timeout 3m -run 'TestDialogDoesNotHideItsWindow|TestDialogStartupLifecycle|TestWindowsDialogSmoke|TestSingleGUIInstance|TestFolderHistory|TestBrandAnimationAsset|TestUpdate' .
       - uses: actions/upload-artifact@v4
         with:
           name: windows
@@ -75,7 +75,7 @@ jobs:
           import os, re
           from pathlib import Path
           ref = os.environ['GITHUB_REF']
-          source = Path('tools/windows-fade/update.go').read_text()
+          source = Path('tools/windows-fade/update.go').read_text(encoding='utf-8')
           version = ref.removeprefix('refs/tags/v') if ref.startswith('refs/tags/v') else re.search(r'appVersion\s*=\s*"([0-9.]+)"', source).group(1)
           if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version):
               raise SystemExit('Version must be X.Y.Z')
@@ -85,7 +85,7 @@ jobs:
       - name: Download verified static FFmpeg 9.1 for both architectures
         run: |
           python - <<'PY'
-          import hashlib, urllib.request, zipfile
+          import hashlib, subprocess, zipfile
           from pathlib import Path
           sources = {
               'amd64': ('1795212433_9.1', {
@@ -98,10 +98,9 @@ jobs:
               folder = Path('build/tools') / arch
               folder.mkdir(parents=True, exist_ok=True)
               for name, checksum in binaries.items():
-                  url = f'https://ffmpeg.martin-riedl.de/download/macos/{arch}/{release}/{name}.zip'
+                  url = f'https://github.com/CanICallYouJim/s-curve-4s/releases/download/build-tools-9.1/{name}-macos-{arch}-9.1.zip'
                   archive = folder / (name + '.zip')
-                  with urllib.request.urlopen(url, timeout=120) as response:
-                      archive.write_bytes(response.read())
+                  subprocess.run(['curl', '--fail', '--location', '--retry', '3', '--max-time', '180', '--output', str(archive), url], check=True)
                   if hashlib.sha256(archive.read_bytes()).hexdigest() != checksum:
                       raise SystemExit('FFmpeg checksum mismatch: ' + str(archive))
                   (folder / (name + '.zip.sha256')).write_text(checksum)
