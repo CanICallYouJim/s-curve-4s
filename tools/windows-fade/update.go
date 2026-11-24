@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-var appVersion = "1.2.0"
+var appVersion = "1.2.1"
 var releaseRepository = "CanICallYouJim/s-curve-4s"
 
 // Request deadlines are scoped separately: a small manifest must arrive

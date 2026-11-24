@@ -77,8 +77,8 @@ final class BrandView: NSView {
         let timer = Timer(timeInterval: 1/60, repeats: true) { [weak self] _ in
             guard let self else { return }
             let elapsed = ProcessInfo.processInfo.systemUptime - self.start
-            if elapsed >= 4.5 { self.reset(); return }
-            self.frameIndex = min(134, Int(elapsed * 30))
+            if elapsed >= 3.5 { self.reset(); return }
+            self.frameIndex = min(104, Int(elapsed * 30))
             self.needsDisplay = true
         }
         self.timer = timer
@@ -165,7 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var updateAvailable = false
     private var cachedTarget = ""
     private var openingUpdate = false
-    private var currentVersion: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2.0" }
+    private var currentVersion: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2.1" }
     private let log = NSTextView()
     private var logBytes = Data()
     private var process: Process?

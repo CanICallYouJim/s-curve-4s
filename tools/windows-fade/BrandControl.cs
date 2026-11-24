@@ -38,12 +38,12 @@ public sealed class IGBrandControl : Control
 
     private void OnTick(object sender, EventArgs args)
     {
-        if (clock.Elapsed.TotalMilliseconds >= 4500)
+        if (clock.Elapsed.TotalMilliseconds >= 3500)
         {
             ResetAnimation();
             return;
         }
-        int next = Math.Min(134, (int)(clock.Elapsed.TotalSeconds * 30));
+        int next = Math.Min(104, (int)(clock.Elapsed.TotalSeconds * 30));
         if (frame != next)
         {
             frame = next;
