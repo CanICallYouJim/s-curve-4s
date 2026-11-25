@@ -152,7 +152,15 @@ func chooseFolderDialog(history []string, check bool) (selection string, err err
 	if check {
 		cmd.Env = append(cmd.Env, "LENA_MUSIC_CHECK=1")
 	}
-	if output, err := waitForDialog(cmd, ready, 45*time.Second, func() { showConsole(false) }); err != nil {
+	var housekeeping sync.WaitGroup
+	defer housekeeping.Wait()
+	if output, err := waitForDialog(cmd, ready, 45*time.Second, func() {
+		showConsole(false)
+		if !check {
+			housekeeping.Add(1)
+			go func() { defer housekeeping.Done(); _ = cleanupUpdateCache(nil) }()
+		}
+	}); err != nil {
 		return "", fmt.Errorf("выбор папки: %w\n%s", err, output)
 	}
 	selected, err := os.ReadFile(result)

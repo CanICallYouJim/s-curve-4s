@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-var appVersion = "1.2.1"
+var appVersion = "1.2.2"
 var releaseRepository = "CanICallYouJim/s-curve-4s"
 
 // Request deadlines are scoped separately: a small manifest must arrive
@@ -375,7 +375,10 @@ func extractUpdate(archive, destination string) error {
 }
 
 func saveInstalledUpdate(root string, current installedUpdate) error {
-	raw, err := json.Marshal(current)
+	// A failed newer pointer cannot replace the version actually executing.
+	executable, _ := os.Executable()
+	state := cacheStateForInstall(root, current, executable)
+	raw, err := json.Marshal(state)
 	if err != nil {
 		return err
 	}
@@ -424,6 +427,14 @@ func installAppUpdate(ctx context.Context) (string, error) {
 	if err = os.MkdirAll(root, 0700); err != nil {
 		return "", err
 	}
+	release, locked, err := tryCacheLock(filepath.Join(root, ".maintenance.lock"))
+	if err != nil {
+		return "", err
+	}
+	if !locked {
+		return "", errors.New("обновление уже устанавливается; повторите позже")
+	}
+	defer release()
 	finalDirectory := filepath.Join(root, manifest.Version)
 	target, err := updateTarget(finalDirectory)
 	if err != nil {
@@ -458,6 +469,9 @@ func installAppUpdate(ctx context.Context) (string, error) {
 		return "", err
 	}
 	defer os.RemoveAll(staging)
+	if err = os.WriteFile(filepath.Join(staging, ".install-owner"), []byte(stagingOwner), 0600); err != nil {
+		return "", err
+	}
 	archive := filepath.Join(staging, "payload")
 	if err = downloadUpdate(ctx, asset, archive); err != nil {
 		return "", err
@@ -487,9 +501,12 @@ func installAppUpdate(ctx context.Context) (string, error) {
 	if err = ctx.Err(); err != nil {
 		return "", err
 	}
+	// Keep ownership proof until the atomic move: a crash before rename must
+	// leave a recognizable staging directory for the next cleanup.
 	if err = os.Rename(staging, finalDirectory); err != nil {
 		return "", err
 	}
+	_ = os.Remove(filepath.Join(finalDirectory, ".install-owner"))
 	if err = saveInstalledUpdate(root, installedUpdate{manifest.Version, target}); err != nil {
 		return "", err
 	}

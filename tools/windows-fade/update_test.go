@@ -164,8 +164,10 @@ func TestUpdateHashMismatchLeavesExistingState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Name() != "current.json" {
-		t.Fatal("unverified payload left published", entries)
+	for _, entry := range entries {
+		if entry.IsDir() || (entry.Name() != "current.json" && entry.Name() != ".maintenance.lock") {
+			t.Fatal("unverified payload left published", entries)
+		}
 	}
 }
 

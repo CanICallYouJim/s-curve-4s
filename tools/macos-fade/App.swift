@@ -165,7 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var updateAvailable = false
     private var cachedTarget = ""
     private var openingUpdate = false
-    private var currentVersion: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2.1" }
+    private var currentVersion: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2.2" }
     private let log = NSTextView()
     private var logBytes = Data()
     private var process: Process?
@@ -406,6 +406,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let task = Process()
         task.executableURL = executable.deletingLastPathComponent().appendingPathComponent("fade-engine")
         task.arguments = [mode, "--result", resultURL.path]
+        if mode == "--update-status" {
+            task.arguments?.append("--cleanup-cache")
+            let running = NSWorkspace.shared.runningApplications.filter { $0.bundleIdentifier == Bundle.main.bundleIdentifier }.compactMap { $0.bundleURL?.standardizedFileURL.path }
+            for path in Set(running + [Bundle.main.bundleURL.standardizedFileURL.path]) {
+                task.arguments?.append(contentsOf: ["--protect-app", path])
+            }
+        }
         task.standardOutput = FileHandle.nullDevice
         task.standardError = FileHandle.nullDevice
         task.standardInput = FileHandle.nullDevice
