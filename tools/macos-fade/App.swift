@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 private let ink = NSColor(calibratedRed: 21/255, green: 35/255, blue: 45/255, alpha: 1)
 private let mint = NSColor(calibratedRed: 99/255, green: 215/255, blue: 193/255, alpha: 1)
@@ -19,6 +20,7 @@ func droppedDirectory(_ info: NSDraggingInfo) -> URL? {
 final class DropView: NSView {
     var accept: ((URL) -> Void)?
     var canDrop: (() -> Bool)?
+    var hover: ((Bool) -> Void)?
     override init(frame: NSRect) {
         super.init(frame: frame)
         registerForDraggedTypes([.fileURL])
@@ -27,10 +29,14 @@ final class DropView: NSView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:)") }
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        canDrop?() == true && droppedDirectory(sender) != nil ? .copy : []
+        let valid = canDrop?() == true && droppedDirectory(sender) != nil
+        hover?(valid)
+        return valid ? .copy : []
     }
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { draggingEntered(sender) }
+    override func draggingExited(_ sender: NSDraggingInfo?) { hover?(false) }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        hover?(false)
         guard canDrop?() == true, let folder = droppedDirectory(sender) else { return false }
         accept?(folder)
         return true
@@ -48,6 +54,52 @@ final class FolderBox: NSComboBox {
         guard canDrop?() == true, let folder = droppedDirectory(sender) else { return false }
         accept?(folder)
         return true
+    }
+}
+
+final class FolderDropZone: NSView {
+    private let icon = NSWorkspace.shared.icon(for: .folder)
+    var highlighted = false { didSet { if highlighted != oldValue { refresh() } } }
+    var selected = false { didSet { if selected != oldValue { refresh() } } }
+
+    private var message: String {
+        if highlighted { return "Отпустите, чтобы выбрать" }
+        return selected ? "Папка выбрана" : "Перетащите папку сюда"
+    }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        refresh()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:)") }
+
+    private func refresh() {
+        setAccessibilityLabel(message)
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let outline = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 14, yRadius: 14)
+        let fill = highlighted
+            ? NSColor(calibratedRed: 35/255, green: 71/255, blue: 72/255, alpha: 1)
+            : NSColor(calibratedRed: 25/255, green: 45/255, blue: 55/255, alpha: 1)
+        fill.setFill()
+        outline.fill()
+        (highlighted || selected ? mint : muted).setStroke()
+        outline.lineWidth = highlighted ? 2 : 1
+        if !highlighted && !selected { outline.setLineDash([5, 4], count: 2, phase: 0) }
+        outline.stroke()
+
+        icon.draw(in: NSRect(x: bounds.midX - 63, y: bounds.midY - 51, width: 126, height: 126))
+        let title = message as NSString
+        let style: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 19, weight: .semibold),
+            .foregroundColor: highlighted || selected ? mint : NSColor.white
+        ]
+        title.draw(at: NSPoint(x: bounds.midX - title.size(withAttributes: style).width / 2, y: bounds.midY - 78), withAttributes: style)
     }
 }
 
@@ -149,13 +201,16 @@ func versionBanner(_ update: UpdateStatus, fallback: String) -> String {
     return "Версия \(current) · Установлена последняя версия"
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSComboBoxDelegate {
     private var window: NSWindow!
-    private let folders = FolderBox(frame: NSRect(x: 28, y: 350, width: 486, height: 28))
+    private let folders = FolderBox(frame: NSRect(x: 28, y: 138, width: 486, height: 28))
+    private let dropZone = FolderDropZone(frame: NSRect(x: 28, y: 182, width: 604, height: 222))
+    private let scroll = NSScrollView(frame: NSRect(x: 28, y: 182, width: 604, height: 222))
     private var browse: NSButton!
     private var start: NSButton!
     private var stop: NSButton!
     private var reveal: NSButton!
+    private var anotherFolder: NSButton!
     private var status: NSTextField!
     private var versionLabel: NSTextField!
     private var updateBanner: NSView!
@@ -204,13 +259,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     private func buildWindow() {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 660, height: 520), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-        window.title = "S-кривая · 4 секунды"
+        window.title = "S-кривая · 4 сек"
         window.delegate = self
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .darkAqua)
         let root = DropView(frame: NSRect(x: 0, y: 0, width: 660, height: 520))
         root.canDrop = { [weak self] in self?.busy == false }
         root.accept = { [weak self] in self?.setFolder($0) }
+        root.hover = { [weak self] active in self?.dropZone.highlighted = active }
         window.contentView = root
         updateBanner = NSView(frame: NSRect(x: 20, y: 470, width: 620, height: 38))
         updateBanner.wantsLayer = true
@@ -226,20 +282,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         updateButton.isHidden = true
         updateButton.isEnabled = false
         _ = label("Плавное начало музыки", NSRect(x: 28, y: 415, width: 604, height: 36), size: 26, bold: true)
-        _ = label("Перетащите папку в окно или выберите из шести последних", NSRect(x: 28, y: 388, width: 604, height: 22), color: muted)
+        root.addSubview(dropZone)
         folders.numberOfVisibleItems = 6
         folders.isEditable = true
         folders.completes = false
+        folders.delegate = self
         folders.registerForDraggedTypes([.fileURL])
         folders.setAccessibilityLabel("Папка с музыкой")
         folders.canDrop = { [weak self] in self?.busy == false }
         folders.accept = { [weak self] in self?.setFolder($0) }
         root.addSubview(folders)
-        browse = button("Обзор…", NSRect(x: 526, y: 348, width: 106, height: 32), #selector(chooseFolder))
-        _ = label("Только треки этой папки. Результаты — в «S-кривая 4 с».", NSRect(x: 28, y: 317, width: 604, height: 24), color: muted)
-        status = label("Выберите папку и нажмите «Обработать».", NSRect(x: 28, y: 282, width: 604, height: 24))
+        browse = button("Обзор…", NSRect(x: 526, y: 136, width: 106, height: 32), #selector(chooseFolder))
+        _ = label("Только треки этой папки. Результаты — в «S-кривая 4 сек».", NSRect(x: 28, y: 105, width: 604, height: 24), color: muted)
+        status = label("", NSRect(x: 28, y: 80, width: 604, height: 22))
         status.lineBreakMode = .byTruncatingMiddle
-        let scroll = NSScrollView(frame: NSRect(x: 28, y: 112, width: 604, height: 160))
+        scroll.isHidden = true
+        scroll.setAccessibilityLabel("Журнал обработки")
         scroll.hasVerticalScroller = true
         scroll.borderType = .noBorder
         scroll.wantsLayer = true
@@ -262,11 +320,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         root.addSubview(scroll)
         let brand = BrandView(frame: NSRect(x: 28, y: 22, width: 112, height: 62), resource: Bundle.main.url(forResource: "brand", withExtension: "png"))
         root.addSubview(brand)
-        reveal = button("Результаты", NSRect(x: 252, y: 38, width: 110, height: 32), #selector(showOutput))
+        anotherFolder = button("Другая папка", NSRect(x: 148, y: 38, width: 136, height: 32), #selector(showFolderSelection))
+        anotherFolder.isHidden = true
+        reveal = button("Результаты", NSRect(x: 288, y: 38, width: 104, height: 32), #selector(showOutput))
         reveal.isEnabled = false
-        stop = button("Остановить", NSRect(x: 366, y: 38, width: 116, height: 32), #selector(stopProcessing))
+        stop = button("Остановить", NSRect(x: 396, y: 38, width: 110, height: 32), #selector(stopProcessing))
         stop.isEnabled = false
-        start = button("Обработать", NSRect(x: 490, y: 38, width: 142, height: 32), #selector(startProcessing))
+        start = button("Обработать", NSRect(x: 510, y: 38, width: 122, height: 32), #selector(startProcessing))
         start.contentTintColor = mint
         start.keyEquivalent = "\r"
         window.center()
@@ -292,10 +352,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         folders.addItems(withObjectValues: Array(history.prefix(6)))
         folders.stringValue = prior.isEmpty ? (history.first ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Music").path) : prior
     }
+    func controlTextDidChange(_ notification: Notification) {
+        dropZone.selected = false
+        if !dropZone.isHidden { status.stringValue = "" }
+    }
+    func comboBoxSelectionDidChange(_ notification: Notification) {
+        let path = folders.objectValueOfSelectedItem as? String ?? ""
+        dropZone.selected = !path.isEmpty && selectedDirectory([URL(fileURLWithPath: path)]) != nil
+        if !dropZone.isHidden { status.stringValue = "" }
+    }
     private func setFolder(_ url: URL) {
         guard !busy else { return }
+        showFolderSelection()
         folders.stringValue = url.path
+        dropZone.selected = true
         status?.stringValue = "Папка выбрана. Нажмите «Обработать»."
+    }
+    @objc private func showFolderSelection() {
+        guard !busy else { return }
+        dropZone.highlighted = false
+        dropZone.selected = false
+        dropZone.isHidden = false
+        scroll.isHidden = true
+        anotherFolder.isHidden = true
+        status.stringValue = ""
     }
     @objc private func chooseFolder() {
         guard !busy else { return }
@@ -317,6 +397,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         guard let resources = Bundle.main.resourceURL, let executable = Bundle.main.executableURL else { return }
+        dropZone.isHidden = true
+        scroll.isHidden = false
+        anotherFolder.isHidden = false
+        logBytes.removeAll()
+        log.string = ""
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("ig-fade-" + UUID().uuidString, isDirectory: true)
         do { try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true) }
         catch { status.stringValue = "Не удалось подготовить запуск: \(error.localizedDescription)"; return }
@@ -328,8 +413,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         task.standardOutput = pipe
         task.standardError = pipe
         task.standardInput = FileHandle.nullDevice
-        logBytes.removeAll()
-        log.string = ""
         output = nil
         reveal.isEnabled = false
         folders.stringValue = folder.path
@@ -365,6 +448,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         folders.isEnabled = !value
         browse.isEnabled = !value
         start.isEnabled = !value
+        anotherFolder.isEnabled = !value
         stop.isEnabled = value && (process != nil || updateProcess != nil)
         updateButton.isEnabled = !value && updateAvailable
     }

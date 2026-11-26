@@ -12,11 +12,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 )
 
-const outputName = "S-кривая 4 с"
+const outputName = "S-кривая 4 сек"
 
 // Audio-only containers. ReadDir deliberately does not visit subdirectories.
 const extensions = ".mp3 .mp2 .wav .wave .flac .m4a .m4b .aac .adts .ogg .oga .opus .wma .aif .aiff .aifc .ape .wv .tta .alac .caf .au .snd .ac3 .eac3 .dts .mka .amr .3ga .dsf .dff .tak .mpc .mp+ .ra .spx .w64 .rf64 .a52 .weba"
@@ -459,7 +460,7 @@ func processFolder(ctx context.Context, folder string, t tools, log io.Writer) (
 	}
 	defer report.Close()
 	writer := io.MultiWriter(log, report)
-	fmt.Fprintf(writer, "Папка: %s\nS-кривая 4 с. Файлов: %d\n", folder, len(inputs))
+	fmt.Fprintf(writer, "Папка: %s\n%s. Файлов: %d\n", folder, outputName, len(inputs))
 	var done, failed int
 	for i, name := range inputs {
 		if err = ctx.Err(); err != nil {
@@ -523,7 +524,11 @@ func main() {
 		if !acquired {
 			return
 		}
-		defer releaseGUIInstance()
+		defer func() { releaseGUIInstance() }()
+		if runtime.GOOS == "windows" {
+			runFolderSession(run, os.Stdin, os.Stdout, os.Stderr)
+			return
+		}
 	}
 	err := run()
 	if applicationMode != "check" && len(os.Args) > 1 {
@@ -548,4 +553,31 @@ func main() {
 	}
 	fmt.Println("\nНажмите Enter, чтобы закрыть окно.")
 	bufio.NewReader(os.Stdin).ReadString('\n')
+}
+
+// runFolderSession keeps the same Windows console and instance lock between selections.
+func runFolderSession(run func() error, input io.Reader, output, diagnostics io.Writer) {
+	reader := bufio.NewScanner(input)
+nextFolder:
+	for {
+		err := run()
+		if errors.Is(err, errCancelled) {
+			return
+		}
+		if err != nil {
+			fmt.Fprintln(diagnostics, "\nОШИБКА:", err)
+		}
+		fmt.Fprintln(output, "\nEnter — выбрать другую папку. Q + Enter — закрыть программу.")
+		for reader.Scan() {
+			answer := strings.TrimSpace(reader.Text())
+			if answer == "" {
+				continue nextFolder
+			}
+			if strings.EqualFold(answer, "q") {
+				return
+			}
+			fmt.Fprintln(output, "Нажмите Enter для выбора папки или введите Q для выхода.")
+		}
+		return
+	}
 }

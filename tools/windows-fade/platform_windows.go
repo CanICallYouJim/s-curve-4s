@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	_ "embed"
+	"embed"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -38,6 +38,9 @@ var brandSprite []byte
 //go:embed BrandControl.cs
 var brandControl []byte
 
+//go:embed FolderDropZone.cs windows-folder.png windows-folder-LICENSE.txt
+var folderAssets embed.FS
+
 func showConsole(show bool) {
 	kernel := syscall.NewLazyDLL("kernel32.dll")
 	window, _, _ := kernel.NewProc("GetConsoleWindow").Call()
@@ -65,8 +68,7 @@ func chooseFolder(history []string) (string, error) {
 			reportDialogError(err)
 			return "", err
 		}
-		releaseGUIInstance()
-		if err = startUpdatedApp(target); err != nil {
+		if err = startUpdatedGUI(target); err != nil {
 			reportDialogError(err)
 			return "", err
 		}
@@ -139,6 +141,15 @@ func chooseFolderDialog(history []string, check bool) (selection string, err err
 	if err = os.WriteFile(brandCodePath, brandControl, 0600); err != nil {
 		return "", err
 	}
+	for _, name := range []string{"FolderDropZone.cs", "windows-folder.png", "windows-folder-LICENSE.txt"} {
+		asset, readErr := folderAssets.ReadFile(name)
+		if readErr != nil {
+			return "", readErr
+		}
+		if err = os.WriteFile(filepath.Join(temp, name), asset, 0600); err != nil {
+			return "", err
+		}
+	}
 	encoded := utf16.Encode([]rune(folderDialog))
 	raw := make([]byte, len(encoded)*2)
 	for i, v := range encoded {
@@ -148,7 +159,7 @@ func chooseFolderDialog(history []string, check bool) (selection string, err err
 	powershell := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
 	cmd := folderDialogCommand(context.Background(), powershell, "-NoProfile", "-STA", "-EncodedCommand", script)
 	data, _ := json.Marshal(history)
-	cmd.Env = append(os.Environ(), "LENA_FADE_EXE="+executable, "LENA_FADE_HISTORY="+string(data), "LENA_FADE_SELECTION="+result, "LENA_FADE_READY="+ready, "LENA_FADE_UPDATE_STATUS="+updatePath, "LENA_FADE_VERSION="+appVersion, "LENA_FADE_BRAND_IMAGE="+brandImagePath, "LENA_FADE_BRAND_CODE="+brandCodePath)
+	cmd.Env = append(os.Environ(), "LENA_FADE_EXE="+executable, "LENA_FADE_HISTORY="+string(data), "LENA_FADE_SELECTION="+result, "LENA_FADE_READY="+ready, "LENA_FADE_UPDATE_STATUS="+updatePath, "LENA_FADE_VERSION="+appVersion, "LENA_FADE_BRAND_IMAGE="+brandImagePath, "LENA_FADE_BRAND_CODE="+brandCodePath, "LENA_FADE_FOLDER_ASSETS="+temp)
 	if check {
 		cmd.Env = append(cmd.Env, "LENA_MUSIC_CHECK=1")
 	}
