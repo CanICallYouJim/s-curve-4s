@@ -50,7 +50,7 @@ jobs:
       - name: Test startup, real dialog, history and updater
         shell: pwsh
         run: |
-          go -C tools/windows-fade test -count=1 -timeout 3m -run 'TestDialogDoesNotHideItsWindow|TestDialogStartupLifecycle|TestWindowsDialogSmoke|TestSingleGUIInstance|TestFolderHistory|TestBrandAnimationAsset|TestUpdate' .
+          go -C tools/windows-fade test -count=1 -timeout 3m -run 'TestDialogDoesNotHideItsWindow|TestDialogStartupLifecycle|TestWindowsDialogSmoke|TestSingleGUIInstance|TestFolderHistory|TestFolderSession|TestBrandAnimationAsset|TestUpdate' .
       - uses: actions/upload-artifact@v4
         with:
           name: windows
@@ -110,7 +110,7 @@ jobs:
           PY
       - name: Test backend and updater
         run: |
-          go -C tools/windows-fade test -count=1 -timeout 3m -run 'TestDialogStartupLifecycle|TestFolderHistory|TestBrandAnimationAsset|TestUpdate' .
+          go -C tools/windows-fade test -count=1 -timeout 3m -run 'TestDialogStartupLifecycle|TestFolderHistory|TestFolderSession|TestBrandAnimationAsset|TestUpdate' .
       - name: Build universal Mac application
         run: python tools/macos-fade/build.py build/tools 'dist/S-кривая 4 с.app' --version "$VERSION"
       - name: Test native application and signature
