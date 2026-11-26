@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -92,6 +93,97 @@ func TestUpdateVersionsAndOffline(t *testing.T) {
 	status := checkAppUpdate(ctx)
 	if status.Available || status.Current != "1.2.0" || status.Error == "" || time.Since(start) > time.Second {
 		t.Fatalf("offline result: %+v", status)
+	}
+}
+
+func TestPollAppUpdatesFindsNewReleaseAfterStartup(t *testing.T) {
+	updateTestHome(t)
+	var requests int
+	updateHTTPClient = &http.Client{Transport: updateRoundTrip(func(r *http.Request) (*http.Response, error) {
+		requests++
+		switch requests {
+		case 1:
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"version":"1.2.0"}`))}, nil
+		case 2:
+			return nil, errors.New("offline")
+		case 3:
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"version":"1.3.0"}`))}, nil
+		default:
+			t.Fatalf("checked again after cancellation: %s", r.URL)
+			return nil, nil
+		}
+	})}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	var statuses []UpdateStatus
+	pollAppUpdates(ctx, 10*time.Millisecond, func(status UpdateStatus) {
+		statuses = append(statuses, status)
+		if len(statuses) == 3 {
+			cancel()
+		}
+	})
+	if len(statuses) != 3 || statuses[0].Available || statuses[0].Error != "" ||
+		statuses[1].Error == "" || !statuses[2].Available || statuses[2].Latest != "1.3.0" {
+		t.Fatalf("unexpected update statuses: %+v", statuses)
+	}
+}
+
+func TestUpdateStatusRefreshChecksBeyondCachedVersion(t *testing.T) {
+	root := updateTestHome(t)
+	updatePlatform = "windows"
+	const cachedVersion = "1.2.1"
+	directory := filepath.Join(root, cachedVersion)
+	target, err := updateTarget(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("MZ"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveInstalledUpdate(root, installedUpdate{cachedVersion, target}); err != nil {
+		t.Fatal(err)
+	}
+	resultPath := filepath.Join(t.TempDir(), "result.json")
+	for _, tc := range []struct {
+		name, latest, wantTarget string
+		refresh, wantCheck       bool
+	}{
+		{"startup", "1.3.0", target, false, false},
+		{"same release", cachedVersion, target, true, true},
+		{"newer release", "1.3.0", "", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			checked := false
+			updateHTTPClient = &http.Client{Transport: updateRoundTrip(func(*http.Request) (*http.Response, error) {
+				checked = true
+				raw, _ := json.Marshal(updateManifest{Version: tc.latest})
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(raw))}, nil
+			})}
+			args := []string{"--update-status", "--result", resultPath}
+			if tc.refresh {
+				args = append(args, "--refresh")
+			}
+			if handled, err := updateCommand(args); !handled || err != nil {
+				t.Fatalf("update command: %t, %v", handled, err)
+			}
+			var result struct {
+				UpdateStatus
+				Target string `json:"target"`
+			}
+			raw, err := os.ReadFile(resultPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(raw, &result); err != nil {
+				t.Fatal(err)
+			}
+			if checked != tc.wantCheck || result.Target != tc.wantTarget || result.Available != (tc.wantTarget == "") || result.Error != "" {
+				t.Fatalf("checked=%t, result=%+v", checked, result)
+			}
+		})
 	}
 }
 

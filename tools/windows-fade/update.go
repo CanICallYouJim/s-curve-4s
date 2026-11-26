@@ -148,6 +148,23 @@ func checkAppUpdate(ctx context.Context) UpdateStatus {
 	return result
 }
 
+func pollAppUpdates(ctx context.Context, interval time.Duration, publish func(UpdateStatus)) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for ctx.Err() == nil {
+		status := checkAppUpdate(ctx)
+		if ctx.Err() != nil {
+			return
+		}
+		publish(status)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
 func updateCacheRoot() (string, error) {
 	root, err := os.UserConfigDir()
 	if err != nil {

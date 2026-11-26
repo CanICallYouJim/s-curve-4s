@@ -84,17 +84,24 @@ $updateButton.Add_Click({
 $form.Controls.Add($updateButton)
 $updateTimer = New-Object System.Windows.Forms.Timer
 $updateTimer.Interval = 250
+$script:nextUpdateResult = 0
 $updateTimer.Add_Tick({
-    if (-not [IO.File]::Exists($env:LENA_FADE_UPDATE_STATUS)) { return }
-    try { $status = [IO.File]::ReadAllText($env:LENA_FADE_UPDATE_STATUS) | ConvertFrom-Json } catch { return }
-    $updateTimer.Stop()
+    $path = '{0}-{1}.json' -f $env:LENA_FADE_UPDATE_STATUS, $script:nextUpdateResult
+    if (-not [IO.File]::Exists($path)) { return }
+    try { $status = [IO.File]::ReadAllText($path) | ConvertFrom-Json } catch { return }
+    $script:nextUpdateResult++
+    try { [IO.File]::Delete($path) } catch {}
+    $updateTimer.Interval = 2000
+    if ($status.error -and $updateButton.Visible) { return }
+    $updateButton.Visible = $status.available
     if ($status.available) {
         $updateLabel.Text = 'Доступна версия ' + $status.latest
         $updateLabel.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#efbd4b')
-        $updateButton.Visible = $true
-    } elseif ($status.error) {
-        $updateLabel.Text = 'Проверка обновлений недоступна. Можно работать.'
-    } else { $updateLabel.Text = 'Установлена актуальная версия ' + $status.current }
+    } else {
+        $updateLabel.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#91a8aa')
+        if ($status.error) { $updateLabel.Text = 'Проверка обновлений недоступна. Можно работать.' }
+        else { $updateLabel.Text = 'Установлена актуальная версия ' + $status.current }
+    }
 })
 if ($env:LENA_MUSIC_CHECK -ne '1') { $updateTimer.Start() }
 $form.Add_FormClosed({ $updateTimer.Stop(); $updateTimer.Dispose() })
