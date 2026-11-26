@@ -96,7 +96,7 @@ func TestUpdateVersionsAndOffline(t *testing.T) {
 	}
 }
 
-func TestPollAppUpdatesFindsNewReleaseAfterStartup(t *testing.T) {
+func TestUpdatePollingFindsNewReleaseAfterStartup(t *testing.T) {
 	updateTestHome(t)
 	var requests int
 	updateHTTPClient = &http.Client{Transport: updateRoundTrip(func(r *http.Request) (*http.Response, error) {

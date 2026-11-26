@@ -11,7 +11,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('tools', type=Path, help='Verified amd64/ and arm64/ directories with ffmpeg and ffprobe')
 parser.add_argument('output', type=Path, help='Destination .app')
 parser.add_argument('--engine-source', type=Path, help='Optional isolated Go source tree')
-parser.add_argument('--version', default='1.2.3', help='Application and updater version')
+parser.add_argument('--version', default='1.2.4', help='Application and updater version')
 args = parser.parse_args()
 root = Path(__file__).resolve().parent
 engine = (args.engine_source or root.parent / 'windows-fade').resolve()

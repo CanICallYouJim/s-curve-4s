@@ -11,7 +11,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('archive', type=Path)
 parser.add_argument('output', type=Path)
 parser.add_argument('--check', action='store_true', help='Build the read-only music checker')
-parser.add_argument('--version', default='1.2.3')
+parser.add_argument('--version', default='1.2.4')
 args = parser.parse_args()
 root = Path(__file__).resolve().parent
 archive = args.archive.resolve()
